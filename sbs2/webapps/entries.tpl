@@ -11,7 +11,7 @@
 % for entry in entries:
 <div class="col">
 <div class="card" style="width: 18rem;">
-    <div class="card-header"><a href="{{entry.url}}" role="button">{{entry.entry_id}}</a> <span class="badge rounded-pill bg-primary">{{len(entry.blob_sequence)}}</span></div>
+    <div class="card-header"><a href="{{entry.url}}" role="button">{{entry.entry_id}}</a> <span class="badge rounded-pill bg-primary">{{entry.blob_count}}</span></div>
     % if entry.preview_url:
     <a href="{{entry.preview_url}}"><img src="{{entry.preview_url}}" class="card-img-top"></a>
     % end

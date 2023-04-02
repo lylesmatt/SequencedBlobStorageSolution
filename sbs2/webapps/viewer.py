@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Set
 from urllib.parse import urlencode
 
 from bottle import Bottle, HTTPResponse, request
 
-from sbs2 import Blob, BlobId, Entry, EntryId, LibraryId, SBS2
+from sbs2 import Blob, BlobId, Entry, EntryId, LibraryId, SBS2, Tag
 from sbs2.webapps import _ResourcePaths, get_blob_as_file_or_abort, get_entry_or_abort, get_library_or_abort
 from sbs2.webapps.templates import NavBarDropDown, NavBarLink, TemplateContext
 
@@ -58,6 +58,15 @@ class _EntryModel:
     preview_url: Optional[str]
 
 
+@dataclass
+class _EntrySummaryModel:
+    entry_id: str
+    tags: List[_TagModel]
+    blob_count: int
+    url: str
+    preview_url: Optional[str]
+
+
 class _ModelFactory:
     def __init__(self, resource_paths: _ViewerResourcePaths) -> None:
         self.resource_paths = resource_paths
@@ -74,16 +83,34 @@ class _ModelFactory:
             preview_url=url if ct.startswith('image/') else None
         )
 
+    def create_tags(self, tags: Set[Tag]) -> List[_TagModel]:
+        return [_TagModel(value=t) for t in sorted(tags)]
+
     def create_entry(self, library_id: LibraryId, entry: Entry) -> _EntryModel:
         blob_sequence: List[_BlobModel] = [self.create_blob(library_id, blob) for blob in entry.blob_sequence]
         blobs_with_preview = [m for m in blob_sequence if m.preview_url]
         return _EntryModel(
             entry_id=entry.entry_id,
             attributes=[_AttributeModel(key=k, value=v) for k, v in sorted(entry.metadata.attributes.items())],
-            tags=[_TagModel(value=t) for t in sorted(entry.metadata.tags)],
+            tags=self.create_tags(entry.metadata.tags),
             blob_sequence=blob_sequence,
             url=self.resource_paths.entry(library_id, entry.entry_id),
             preview_url=blobs_with_preview[0].preview_url if blobs_with_preview else None
+        )
+
+    def create_entry_summary(self, library_id: LibraryId, entry: Entry) -> _EntrySummaryModel:
+        preview_url = None
+        for blob in entry.blob_sequence:
+            blob_model = self.create_blob(library_id, blob)
+            if blob_model.preview_url:
+                preview_url = blob_model.preview_url
+                break
+        return _EntrySummaryModel(
+            entry_id=entry.entry_id,
+            tags=self.create_tags(entry.metadata.tags),
+            blob_count=len(entry.blob_sequence),
+            url=self.resource_paths.entry(library_id, entry.entry_id),
+            preview_url=preview_url
         )
 
 
@@ -128,7 +155,7 @@ def viewer_application(
         reverse = sort.lower() == 'desc'
 
         entries = library.get_entries(limit=limit, after=after, reverse=reverse)
-        entry_models = [model_factory.create_entry(library_id, e) for e in entries]
+        entry_models = [model_factory.create_entry_summary(library_id, e) for e in entries]
 
         if entry_models and len(entry_models) == limit:
             params = dict(limit=limit, after=entry_models[-1].entry_id, sort=sort)

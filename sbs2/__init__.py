@@ -141,23 +141,6 @@ class Library(ABC):
     @abstractmethod
     def delete_entry(self, entry_id: EntryId) -> None: ...
 
-    def _entry_from_dict(self, entry_dict: Dict[str, Any]) -> Entry:
-        blob_sequence: List[Blob] = list()
-        missing_blob_ids = set()
-        for blob_id in entry_dict['blob_sequence']:
-            blob = self.get_blob(blob_id)
-            if blob:
-                blob_sequence.append(blob)
-            else:
-                missing_blob_ids.add(blob_id)
-        if missing_blob_ids:
-            raise SBS2Exception(f'Could not get blobs with ID in {missing_blob_ids}')
-        return Entry(
-            entry_id=EntryId(entry_dict['entry_id']),
-            metadata=EntryMetadata.from_dict(entry_dict['metadata']),
-            blob_sequence=blob_sequence
-        )
-
     @abstractmethod
     def get_blob(self, blob_id: BlobId) -> Optional[Blob]: ...
 

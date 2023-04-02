@@ -18,6 +18,7 @@ from sbs2 import (
     ContentType,
     Entry,
     EntryId,
+    EntryMetadata,
     Library,
     LibraryId,
     PositiveInt,
@@ -107,7 +108,16 @@ class FileSystemLibrary(Library):
                 entry_data = self.config.entry_file_format.load(f)
             except BaseException as ex:
                 raise SBS2Exception(f'Unable to parse data for entry at "{entry_file_path}"') from ex
-            return self._entry_from_dict(entry_data)
+
+        def get_blob_unsafe(blob_id: BlobId) -> Blob:
+            blob_file_path = self._get_blob_file_path(blob_id)
+            return Blob(blob_id=blob_id, content=FileContent(blob_file_path))
+
+        return Entry(
+            entry_id=EntryId(entry_data['entry_id']),
+            metadata=EntryMetadata.from_dict(entry_data['metadata']),
+            blob_sequence=list(map(get_blob_unsafe, entry_data['blob_sequence']))
+        )
 
     def _get_blob_file_path(self, blob_id: BlobId) -> Path:
         return self._blobs_path.joinpath(blob_id)

@@ -1,5 +1,5 @@
 from dataclasses import InitVar, dataclass, field
-from typing import Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import boto3
 import boto3.dynamodb.conditions as dynamo_conditions
@@ -17,6 +17,7 @@ from sbs2 import (
     ContentType,
     Entry,
     EntryId,
+    EntryMetadata,
     Library,
     LibraryId,
     PositiveInt,
@@ -65,12 +66,23 @@ class AwsLibrary(Library):
     def _to_blob_s3_key(self, blob_id: BlobId) -> str:
         return f'Libraries/{self.library_id}/Blobs/{blob_id}'
 
+    def _entry_from_item(self, entry_item: Dict[str, Any]) -> Entry:
+        def get_blob_unsafe(blob_id: BlobId) -> Blob:
+            s3_key = self._to_blob_s3_key(blob_id)
+            s3_object = self.aws_resources.blob_s3_bucket.Object(s3_key)
+            return Blob(blob_id=blob_id, content=S3ObjectContent(s3_object))
+        return Entry(
+            entry_id=EntryId(entry_item['entry_id']),
+            metadata=EntryMetadata.from_dict(entry_item['metadata']),
+            blob_sequence=list(map(get_blob_unsafe, entry_item['blob_sequence']))
+        )
+
     def get_entry(self, entry_id: EntryId) -> Optional[Entry]:
         key = self._to_entry_dynamo_key(entry_id)
         item = self.aws_resources.entry_dynamo_table.get_item(Key=key).get('Item')
         if not item:
             return None
-        return self._entry_from_dict(item)
+        return self._entry_from_item(item)
 
     def get_entries(
         self,
@@ -92,7 +104,7 @@ class AwsLibrary(Library):
             items = results.get('Items')
             if not items:
                 break
-            yield from map(self._entry_from_dict, items)
+            yield from map(self._entry_from_item, items)
             if limit:
                 break
             last_evaluated_key = results.get('LastEvaluatedKey')
@@ -115,10 +127,7 @@ class AwsLibrary(Library):
         try:
             # get an attribute of the object, which will result in a head request, and catch the 404 if no object
             s3_object.e_tag
-            return Blob(
-                blob_id=blob_id,
-                content=S3ObjectContent(s3_object)
-            )
+            return Blob(blob_id=blob_id, content=S3ObjectContent(s3_object))
         except botocore.exceptions.ClientError as ex:
             error_code = ex.response['Error']['Code']
             if error_code == '404':
