@@ -74,8 +74,8 @@ def digit_value_aware_sort_key(value: str) -> List[Union[str, int]]:
 @dataclass
 class FileSystemLibraryConfig:
     entries_folder_relative_path: PathLike = field(default_factory=lambda: 'Entries')
-    entry_file_format: FileSystemEntryFileFormat = field(default=yaml_entry_file_format)
-    entry_id_sort_key: Callable[[EntryId], Any] = field(default=digit_value_aware_sort_key)
+    entry_file_format: FileSystemEntryFileFormat = field(default_factory=lambda: yaml_entry_file_format)
+    entry_id_sort_key: Callable[[EntryId], Any] = field(default_factory=lambda: digit_value_aware_sort_key)
     blobs_folder_relative_path: PathLike = field(default_factory=lambda: 'Blobs')
 
 
@@ -98,7 +98,7 @@ class FileSystemLibrary(Library):
 
     def _get_sorted_entry_file_paths(self) -> SortedKeyList[Path]:
         return SortedKeyList(
-            iterable=self._entries_path.glob('*' + self.config.entry_file_format.file_extension),
+            iterable=filter(lambda p: not p.stem.startswith('._'), self._entries_path.glob('*' + self.config.entry_file_format.file_extension)),
             key=lambda efp: self.config.entry_id_sort_key(efp.stem)
         )
 
