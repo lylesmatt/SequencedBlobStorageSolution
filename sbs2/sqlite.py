@@ -30,8 +30,8 @@ class _SqliteDict(SqliteDict):
 
 
 class SqliteLibrary(AbstractFileContentLibrary):
-    def __init__(self, library_file_path: PathLike) -> None:
-        library_file_path = Path(library_file_path)
+    def __init__(self, library_file_pathlike: PathLike) -> None:
+        library_file_path = Path(library_file_pathlike)
         super().__init__(LibraryId(library_file_path.name))
         self._entry_db = _SqliteDict(library_file_path.joinpath('entries.db'), autocommit=True)
         self._blobs_path = library_file_path.joinpath('Blobs')
