@@ -1,5 +1,6 @@
 import mimetypes
 import re
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
@@ -24,7 +25,7 @@ from sbs2 import (
     PositiveInt,
     SBS2Exception,
     _copy_fileobj,
-    _get_content_type
+    _get_content_type, BlobSequence
 )
 
 PathLike = Union[Path, str]
@@ -49,6 +50,38 @@ class FileContent(Content):
 
     def __repr__(self) -> str:
         return f'<FileContent: {self.file_path}>'
+
+
+class AbstractFileContentLibrary(Library, ABC):
+    @abstractmethod
+    def _get_blob_file_path(self, blob_id: BlobId) -> Path: ...
+
+    def get_blob(self, blob_id: BlobId) -> Optional[Blob]:
+        blob_file_path = self._get_blob_file_path(blob_id)
+        if not blob_file_path.exists():
+            return None
+        return Blob(blob_id=blob_id, content=FileContent(blob_file_path))
+
+    def _get_blob_sequence(self, blob_id_sequence: List[BlobId]) -> BlobSequence:
+        def get_blob_unsafe(blob_id: BlobId) -> Blob:
+            blob_file_path = self._get_blob_file_path(blob_id)
+            return Blob(blob_id=blob_id, content=FileContent(blob_file_path))
+
+        return list(map(get_blob_unsafe, blob_id_sequence))
+
+    def blob_exists(self, blob_id: BlobId) -> bool:
+        return self._get_blob_file_path(blob_id).exists()
+
+    def _write_blob_content(
+        self,
+        blob_id: BlobId,
+        content: Content,
+        write_callback: Optional[BytesWrittenCallback] = None
+    ) -> Blob:
+        blob_file_path = self._get_blob_file_path(blob_id)
+        with content.get_body() as src, blob_file_path.open('wb') as dst:
+            _copy_fileobj(src, dst, write_callback)
+        return Blob(blob_id=blob_id, content=FileContent(blob_file_path))
 
 
 @dataclass
@@ -79,7 +112,7 @@ class FileSystemLibraryConfig:
     blobs_folder_relative_path: PathLike = field(default_factory=lambda: 'Blobs')
 
 
-class FileSystemLibrary(Library):
+class FileSystemLibrary(AbstractFileContentLibrary):
     def __init__(self, library_file_path: PathLike, config: Optional[FileSystemLibraryConfig] = None) -> None:
         self.library_file_path = as_absolute_path(library_file_path)
         super().__init__(LibraryId(self.library_file_path.name))
@@ -109,14 +142,10 @@ class FileSystemLibrary(Library):
             except BaseException as ex:
                 raise SBS2Exception(f'Unable to parse data for entry at "{entry_file_path}"') from ex
 
-        def get_blob_unsafe(blob_id: BlobId) -> Blob:
-            blob_file_path = self._get_blob_file_path(blob_id)
-            return Blob(blob_id=blob_id, content=FileContent(blob_file_path))
-
         return Entry(
             entry_id=EntryId(entry_data['entry_id']),
             metadata=EntryMetadata.from_dict(entry_data['metadata']),
-            blob_sequence=list(map(get_blob_unsafe, entry_data['blob_sequence']))
+            blob_sequence=self._get_blob_sequence(entry_data['blob_sequence']),
         )
 
     def _get_blob_file_path(self, blob_id: BlobId) -> Path:
@@ -158,23 +187,3 @@ class FileSystemLibrary(Library):
 
     def delete_entry(self, entry_id: EntryId) -> None:
         self._get_entry_file_path(entry_id).unlink()
-
-    def get_blob(self, blob_id: BlobId) -> Optional[Blob]:
-        blob_file_path = self._get_blob_file_path(blob_id)
-        if not blob_file_path.exists():
-            return None
-        return Blob(blob_id=blob_id, content=FileContent(blob_file_path))
-
-    def blob_exists(self, blob_id: BlobId) -> bool:
-        return self._get_blob_file_path(blob_id).exists()
-
-    def _write_blob_content(
-        self,
-        blob_id: BlobId,
-        content: Content,
-        write_callback: Optional[BytesWrittenCallback] = None
-    ) -> Blob:
-        blob_file_path = self._get_blob_file_path(blob_id)
-        with content.get_body() as src, blob_file_path.open('wb') as dst:
-            _copy_fileobj(src, dst, write_callback)
-        return Blob(blob_id=blob_id, content=FileContent(blob_file_path))

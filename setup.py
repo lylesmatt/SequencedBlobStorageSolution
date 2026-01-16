@@ -18,6 +18,7 @@ setup(
         'botocore',
         'boto3',
         'boto3-type-annotations',
+        'sqlitedict',
         'bottle',
         'bottle-fdsend',
     ],
