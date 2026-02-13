@@ -4,8 +4,8 @@ setup(
     name='SBS2',
     version='2.0',
     packages=find_packages(exclude=['test']),
+    package_data={"sbs2.webapps": ['*.tpl']},
     include_package_data=True,
-    data_files={'sbs2.webapps', '*.tpl'},
     author='Matt Lyles',
     author_email='lyles.matt@gmail.com',
     description='Sequenced Blob Storage Solution (SBS2) is a "buffet of utilities" to store and retrieve organized'
