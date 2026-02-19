@@ -48,7 +48,7 @@ class _DownloadStatus:
         else:
             numerator = None
 
-        if numerator and self.content_length:
+        if numerator is not None and self.content_length is not None:
             return round(numerator * 100 / self.content_length)
         else:
             return 100
@@ -83,6 +83,12 @@ class _EntryIngestion:
     downloads: List[_DownloadStatus] = field(default_factory=list)
 
 
+@dataclass
+class _DownloadInput:
+    url: str
+    content_type: Optional[str] = field(default=None)
+
+
 class ConflictResolution(Enum):
     Skip = auto()
     Replace = auto()
@@ -99,7 +105,7 @@ class _Ingestor:
         library: Library,
         entry_id: EntryId,
         entry_metadata: EntryMetadata,
-        urls: List[str],
+        download_inputs: List[_DownloadInput],
         conflict_resolution: ConflictResolution
     ) -> Optional[Entry]:
         for i in self.entry_ingestions:
@@ -114,7 +120,7 @@ class _Ingestor:
             return None
         elif ConflictResolution.ReplaceIfMore == conflict_resolution:
             existing_entry = library.get_entry(entry_id)
-            if existing_entry and len(existing_entry.blob_sequence) >= len(urls):
+            if existing_entry and len(existing_entry.blob_sequence) >= len(download_inputs):
                 _logger.info(f'Skipping ingestion for entry {entry_id} in library {library.library_id}: '
                              'entry already exists with as many blobs and conflict resolution is ReplaceIfMore')
                 return None
@@ -125,12 +131,15 @@ class _Ingestor:
         self.entry_ingestions.append(ingestion)
 
         try:
-            def download_and_create_blob(url: str) -> Optional[Blob]:
+            def download_and_create_blob(download_input: _DownloadInput) -> Optional[Blob]:
+                url = download_input.url
                 dl_status = _DownloadStatus(url)
                 ingestion.downloads.append(dl_status)
                 try:
                     dl = download(url)
                     dl_status.content_length = dl.headers.content_length
+                    if download_input.content_type:
+                        dl.headers.content_type = download_input.content_type
                     dl_status.state = 'Downloading'
                     content = dl.read_content(dl_status.increment_bytes_downloaded)
                     dl_status.state = 'Writing'
@@ -145,7 +154,7 @@ class _Ingestor:
                     ingestion.state = 'Failed'
                     return None
 
-            blobs = [download_and_create_blob(url) for url in urls]
+            blobs = self.thread_pool.map(download_and_create_blob, download_inputs)
 
             if ingestion.state != 'Working':
                 _logger.error(f'Failed to put entry {entry_id} in library {library.library_id}')
@@ -188,7 +197,10 @@ def intake_application(
 
     @api.get(resource_paths.intake)
     def get_intake_status():
+        filter_state = request.query.get('state')
         ingestions = ingestor.entry_ingestions
+        if filter_state:
+            ingestions = [ingestion for ingestion in ingestions if ingestion.state == filter_state]
         return template_context.render_template(
             template_name='intakestatus',
             title='Intake Status',
@@ -208,11 +220,16 @@ def intake_application(
             library_id = entry_intake['library_id']
             library = get_library_or_abort(sbs2, library_id, AbortResponseStatus.BadRequest)
 
+            if 'urls' in entry_intake['content']:
+                download_inputs = [_DownloadInput(url=url) for url in entry_intake['content']['urls']]
+            else:
+                download_inputs = [_DownloadInput(**di) for di in entry_intake['content']['downloads']]
+
             ingestor_args = dict(
                 library=library,
                 entry_id=EntryId(entry_intake['entry_id']),
                 entry_metadata=EntryMetadata.from_dict(entry_intake['entry_metadata']),
-                urls=entry_intake['content']['urls'],
+                download_inputs=download_inputs,
                 conflict_resolution=conflict_resolution
             )
         except HTTPError:
